@@ -26,8 +26,7 @@
 - Swagger
 
 ## API 문서
-Swagger UI를 통해 API 문서를 제공합니다:
-http://localhost:8080/swagger-ui.html
+Swagger UI를 통해 API 문서를 제공합니다.
 
 ## 프로젝트 특징
 - 클린 아키텍처: 도메인 중심의 계층 분리로 유지보수성 향상
