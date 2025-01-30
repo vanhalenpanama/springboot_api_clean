@@ -1,0 +1,271 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org">
+<head>
+    <meta charset="UTF-8">
+    <title>사용자 관리 시스템</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
+</head>
+<body>
+<div class="container mt-5">
+    <!-- 비인증 사용자용 컨텐츠 -->
+    <div id="unauthenticatedContent">
+        <h2>로그인</h2>
+        <form id="loginForm" onsubmit="handleLogin(event)">
+            <div class="mb-3">
+                <label for="email" class="form-label">이메일</label>
+                <input type="email" class="form-control" id="email" name="email" required>
+            </div>
+            <div class="mb-3">
+                <label for="password" class="form-label">비밀번호</label>
+                <input type="password" class="form-control" id="password" name="password" required>
+            </div>
+            <button type="submit" class="btn btn-primary">로그인</button>
+        </form>
+
+        <div class="mt-3">
+            <a href="/signup" class="btn btn-primary">회원가입</a>
+        </div>
+
+        <div id="tokenDisplay" style="display: none;" class="alert alert-success mt-3">
+            <p>발급된 JWT 토큰:</p>
+            <textarea id="tokenText" class="form-control" rows="3" readonly></textarea>
+        </div>
+    </div>
+
+    <!-- 인증된 사용자용 컨텐츠 -->
+    <div id="authenticatedContent" style="display: none;">
+        <h2>환영합니다, <span id="userName"></span>님!</h2>
+
+        <div class="mt-3">
+            <button onclick="handleLogout()" class="btn btn-secondary">로그아웃</button>
+            <button onclick="location.href='/edit-profile'" class="btn btn-primary">회원정보 수정</button>
+            <button onclick="handleDeleteUser()" class="btn btn-danger">회원탈퇴</button>
+        </div>
+
+        <!-- 인증된 사용자만 볼 수 있는 추가 컨텐츠 -->
+        <div class="mt-4">
+            <h3>비공개 컨텐츠</h3>
+            <div id="privateContent">
+                <!-- 여기에 인증된 사용자만 볼 수 있는 컨텐츠 추가 -->
+                <div class="mt-4">
+                    <h3>나의 노트 목록</h3>
+<!--                    <button onclick="location.href='/create-note'" class="btn btn-primary">새 노트 작성</button>-->
+                    <a href="/create-note" class="btn btn-success">새 노트 작성</a>
+                    <div id="notesList" class="list-group mt-3">
+                        <!-- 노트 목록이 여기에 동적으로 추가됨 -->
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 알림 메시지 -->
+    <div id="alertMessage" class="alert mt-3" style="display: none;"></div>
+</div>
+
+<script>
+    // 페이지 로드 시 인증 상태 확인
+    window.onload = function() {
+        const token = localStorage.getItem('accessToken');
+        if (token) {
+            checkAuthAndUpdateUI(token);
+            loadNotes();
+        }
+    }
+
+    // 로그인 처리
+    function handleLogin(event) {
+        event.preventDefault();
+
+        const loginData = {
+            email: document.getElementById('email').value,
+            password: document.getElementById('password').value
+        };
+
+        fetch('/users/login', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify(loginData)
+        })
+            .then(response => {
+                if (response.ok) {
+                    return response.json();
+                }
+                throw new Error('로그인 실패');
+            })
+            .then(data => {
+                const token = data.accessToken;
+                localStorage.setItem('accessToken', token);
+
+                // 토큰 표시
+                document.getElementById('tokenText').value = token;
+                document.getElementById('tokenDisplay').style.display = 'block';
+
+                // 사용자 정보 가져오기 및 UI 업데이트
+                checkAuthAndUpdateUI(token);
+                loadNotes();  // 로그인 성공 후 노트 목록 로드
+            })
+            .catch(error => {
+                showAlert('로그인에 실패했습니다. 이메일과 비밀번호를 확인해주세요.', 'danger');
+            });
+    }
+
+    // 로그아웃 처리
+    function handleLogout() {
+        localStorage.removeItem('accessToken');
+        updateUIState(false);
+        showAlert('로그아웃되었습니다.', 'success');
+        window.location.replace('/');
+    }
+
+    // 회원 탈퇴 처리
+    function handleDeleteUser() {
+        if (!confirm('정말 탈퇴하시겠습니까?')) {
+            return;
+        }
+
+        const token = localStorage.getItem('accessToken');
+        const userId = localStorage.getItem('userId');
+
+        fetch(`/users/${userId}`, {
+            method: 'DELETE',
+            headers: {
+                'Authorization': `Bearer ${token}`
+            }
+        })
+            .then(response => {
+                if (response.ok) {
+                    localStorage.clear();
+                    updateUIState(false);
+                    showAlert('회원 탈퇴가 완료되었습니다.', 'success');
+                } else {
+                    throw new Error('회원 탈퇴 실패');
+                }
+            })
+            .catch(error => {
+                showAlert('회원 탈퇴 처리 중 오류가 발생했습니다.', 'danger');
+            });
+
+        window.location.replace('/');
+    }
+
+    // 인증 확인 및 UI 업데이트
+    function checkAuthAndUpdateUI(token) {
+        fetch('/users/me', {
+            headers: {
+                'Authorization': `Bearer ${token}`
+            }
+        })
+            .then(response => {
+                if (response.ok) {
+                    return response.json();
+                }
+                throw new Error('인증 실패');
+            })
+            .then(userData => {
+                localStorage.setItem('userId', userData.id);
+                document.getElementById('userName').textContent = userData.name;
+                updateUIState(true);
+            })
+            .catch(error => {
+                localStorage.removeItem('accessToken');
+                updateUIState(false);
+                showAlert('인증이 만료되었습니다. 다시 로그인해주세요.', 'warning');
+            });
+    }
+
+    // UI 상태 업데이트
+    function updateUIState(isAuthenticated) {
+        document.getElementById('unauthenticatedContent').style.display =
+            isAuthenticated ? 'none' : 'block';
+        document.getElementById('authenticatedContent').style.display =
+            isAuthenticated ? 'block' : 'none';
+        document.getElementById('tokenDisplay').style.display = 'none';
+    }
+
+    // 알림 메시지 표시
+    function showAlert(message, type) {
+        const alertDiv = document.getElementById('alertMessage');
+        alertDiv.textContent = message;
+        alertDiv.className = `alert alert-${type} mt-3`;
+        alertDiv.style.display = 'block';
+
+        setTimeout(() => {
+            alertDiv.style.display = 'none';
+        }, 3000);
+    }
+
+    // 노트 목록 불러오기 함수 수정
+    function loadNotes() {
+        const token = localStorage.getItem('accessToken');
+
+        fetch('/notes?page=1&itemsPerPage=10', {
+            headers: {
+                'Authorization': `Bearer ${token}`
+            }
+        })
+            .then(response => {
+                if (response.ok) {
+                    return response.json();
+                }
+                throw new Error('노트 목록 조회 실패');
+            })
+            .then(data => {
+                const notesListDiv = document.getElementById('notesList');
+                notesListDiv.innerHTML = '';
+
+                if (data.notes && data.notes.length > 0) {
+                    data.notes.forEach(note => {
+                        const noteItem = document.createElement('a');
+                        noteItem.href = `/note-detail/${note.id}`;  // 상세 페이지 링크
+                        noteItem.className = 'list-group-item list-group-item-action';
+                        noteItem.innerHTML = `
+                    <div class="d-flex justify-content-between align-items-center">
+                        <h5 class="mb-1">${note.title}</h5>
+                        <small>${new Date(note.createdAt).toLocaleDateString()}</small>
+                    </div>
+                `;
+                        notesListDiv.appendChild(noteItem);
+                    });
+                } else {
+                    notesListDiv.innerHTML = '<p class="text-center text-muted">작성된 노트가 없습니다.</p>';
+                }
+            })
+            .catch(error => {
+                console.error('Error:', error);
+                alert('노트 목록을 불러오는데 실패했습니다.');
+            });
+    }
+
+    // 노트 상세 보기 함수
+    function showNoteDetail(noteId) {
+        const token = localStorage.getItem('accessToken');
+
+        fetch(`/notes/${noteId}`, {
+            headers: {
+                'Authorization': `Bearer ${token}`
+            }
+        })
+            .then(response => {
+                if (response.ok) {
+                    return response.json();
+                }
+                throw new Error('노트 조회 실패');
+            })
+            .then(note => {
+                // 노트 상세 내용을 모달이나 새 페이지에 표시
+                alert(`제목: ${note.title}\n내용: ${note.content}`);
+            })
+            .catch(error => {
+                console.error('Error:', error);
+                showAlert('노트를 불러오는데 실패했습니다.', 'danger');
+            });
+    }
+</script>
+</body>
+</html>
+
+
+
